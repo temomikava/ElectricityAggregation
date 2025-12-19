@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Electricity.Worker": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
