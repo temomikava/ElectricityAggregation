@@ -30,6 +30,15 @@ public class ConsumptionRepository : IConsumptionRepository
             .ToListAsync();
     }
 
+    public async Task<DateTime?> GetLatestMonthAsync()
+    {
+        return await _context.ConsumptionRecords
+            .AsNoTracking()
+            .OrderByDescending(r => r.Month)
+            .Select(r => (DateTime?)r.Month)
+            .FirstOrDefaultAsync();
+    }
+
     public async Task<bool> MonthExistsAsync(DateTime month)
     {
         return await _context.ConsumptionRecords

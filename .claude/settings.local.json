@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(\"/mnt/c/Program Files/dotnet/dotnet.exe\" build ElectricityAggregation.sln)",
+      "Bash(\"/mnt/c/Program Files/dotnet/dotnet.exe\" test ElectricityAggregation.sln --verbosity normal)",
+      "Bash(\"/mnt/c/Program Files/dotnet/dotnet.exe\" test ElectricityAggregation.sln --verbosity minimal --no-build)",
+      "Bash(\"/mnt/c/Program Files/dotnet/dotnet.exe\" build /mnt/c/Users/Lenovo-PC/source/repos/ElectricityAggregation/ElectricityAggregation.sln)"
+    ]
+  }
+}

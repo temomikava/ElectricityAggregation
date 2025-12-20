@@ -77,12 +77,50 @@ public class ElectricityDataService : IElectricityDataService
 
     public async Task<List<RegionConsumptionDto>> GetConsumptionByRegionAsync(DateTime? fromMonth = null, DateTime? toMonth = null)
     {
-        var from = fromMonth ?? DateTime.UtcNow.AddMonths(-2);
-        var to = toMonth ?? DateTime.UtcNow;
+        DateTime from;
+        DateTime to;
 
-        _logger.LogInformation("Retrieving consumption data from {From} to {To}", from, to);
+        // If no parameters provided, use intelligent defaults based on available data
+        if (!fromMonth.HasValue || !toMonth.HasValue)
+        {
+            var latestMonth = await _consumptionRepository.GetLatestMonthAsync();
+
+            if (latestMonth.HasValue)
+            {
+                // Use the latest available month and 1 month before it as defaults
+                to = toMonth ?? latestMonth.Value;
+                from = fromMonth ?? latestMonth.Value.AddMonths(-1);
+
+                _logger.LogInformation(
+                    "Using defaults based on latest available data: from {From:yyyy-MM} to {To:yyyy-MM}",
+                    from, to);
+            }
+            else
+            {
+                // Fallback to current date if no data exists
+                to = toMonth ?? DateTime.UtcNow;
+                from = fromMonth ?? DateTime.UtcNow.AddMonths(-1);
+
+                _logger.LogWarning(
+                    "No data in database, using fallback defaults: from {From:yyyy-MM} to {To:yyyy-MM}",
+                    from, to);
+            }
+        }
+        else
+        {
+            from = fromMonth.Value;
+            to = toMonth.Value;
+        }
+
+        _logger.LogInformation("Retrieving consumption data from {From:yyyy-MM} to {To:yyyy-MM}", from, to);
 
         var records = await _consumptionRepository.GetByMonthRangeAsync(from, to);
+
+        if (records.Count == 0)
+        {
+            _logger.LogInformation("No consumption records found for the specified date range");
+            return new List<RegionConsumptionDto>();
+        }
 
         var result = records
             .GroupBy(r => new { r.Region, r.Month })
@@ -100,7 +138,11 @@ public class ElectricityDataService : IElectricityDataService
             .ThenBy(r => r.Region)
             .ToList();
 
-        _logger.LogInformation("Retrieved {Count} consumption records", result.Count);
+        _logger.LogInformation("Retrieved {Count} consumption records across {Regions} regions and {Months} months",
+            result.Count,
+            result.Select(r => r.Region).Distinct().Count(),
+            result.Select(r => r.Month).Distinct().Count());
+
         return result;
     }
 

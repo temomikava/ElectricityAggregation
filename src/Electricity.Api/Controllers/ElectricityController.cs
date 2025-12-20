@@ -27,11 +27,30 @@ public class ElectricityController : ControllerBase
     /// <summary>
     /// Get aggregated electricity consumption by region
     /// </summary>
-    /// <param name="fromMonth">Start month (optional, defaults to 2 months ago)</param>
-    /// <param name="toMonth">End month (optional, defaults to current month)</param>
-    /// <returns>List of consumption data aggregated by region</returns>
-    /// <response code="200">Returns the consumption data</response>
-    /// <response code="500">If an error occurs</response>
+    /// <param name="fromMonth">
+    /// Start month - accepts flexible formats: "2024-1", "2024-01", or "2024-01-01".
+    /// Any day value is normalized to the 1st of the month.
+    /// Optional - defaults to 2 months before latest available data.
+    /// </param>
+    /// <param name="toMonth">
+    /// End month - accepts flexible formats: "2024-12", "2024-10", or "2024-10-01".
+    /// Any day value is normalized to the 1st of the month.
+    /// Optional - defaults to latest available data.
+    /// </param>
+    /// <returns>List of consumption data aggregated by region and month</returns>
+    /// <response code="200">Returns the consumption data grouped by region (Tinklas) and month</response>
+    /// <response code="500">If an error occurs while retrieving data</response>
+    /// <remarks>
+    /// Example requests:
+    ///
+    ///     GET /api/electricity/consumption?fromMonth=2024-1&amp;toMonth=2024-10
+    ///     GET /api/electricity/consumption?fromMonth=2024-09&amp;toMonth=2024-12
+    ///     GET /api/electricity/consumption?fromMonth=2024-01-01&amp;toMonth=2024-12-01
+    ///     GET /api/electricity/consumption
+    ///
+    /// Returns apartment electricity consumption aggregated by region (Tinklas field).
+    /// **Default behavior:** If no parameters provided, returns last 2 months of available data.
+    /// </remarks>
     [HttpGet("consumption")]
     [ProducesResponseType(typeof(List<RegionConsumptionDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
@@ -39,8 +58,17 @@ public class ElectricityController : ControllerBase
         [FromQuery] DateTime? fromMonth,
         [FromQuery] DateTime? toMonth)
     {
-        _logger.LogInformation("Getting consumption data from {From} to {To}", fromMonth, toMonth);
-        var result = await _dataService.GetConsumptionByRegionAsync(fromMonth, toMonth);
+        var fromUtc = fromMonth.HasValue
+            ? new DateTime(fromMonth.Value.Year, fromMonth.Value.Month, 1, 0, 0, 0, DateTimeKind.Utc)
+            : (DateTime?)null;
+        var toUtc = toMonth.HasValue
+            ? new DateTime(toMonth.Value.Year, toMonth.Value.Month, 1, 0, 0, 0, DateTimeKind.Utc)
+            : (DateTime?)null;
+
+        _logger.LogInformation("Retrieving consumption data from {From:yyyy-MM} to {To:yyyy-MM}",
+            fromUtc, toUtc);
+
+        var result = await _dataService.GetConsumptionByRegionAsync(fromUtc, toUtc);
         return Ok(result);
     }
 

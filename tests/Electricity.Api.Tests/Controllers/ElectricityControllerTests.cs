@@ -27,8 +27,13 @@ public class ElectricityControllerTests
     public async Task GetConsumption_WithValidDates_ShouldReturnOkWithData()
     {
         // Arrange
-        var fromMonth = new DateTime(2024, 9, 1);
-        var toMonth = new DateTime(2024, 10, 31);
+        var inputFromMonth = new DateTime(2024, 9, 15); // Any day is accepted
+        var inputToMonth = new DateTime(2024, 10, 31); // Any day is accepted
+
+        // These are the normalized dates (first of month) that will be passed to the service
+        var normalizedFromMonth = new DateTime(2024, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var normalizedToMonth = new DateTime(2024, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+
         var expectedData = new List<RegionConsumptionDto>
         {
             new RegionConsumptionDto
@@ -50,17 +55,17 @@ public class ElectricityControllerTests
         };
 
         _mockDataService
-            .Setup(x => x.GetConsumptionByRegionAsync(fromMonth, toMonth))
+            .Setup(x => x.GetConsumptionByRegionAsync(normalizedFromMonth, normalizedToMonth))
             .ReturnsAsync(expectedData);
 
         // Act
-        var result = await _controller.GetConsumption(fromMonth, toMonth);
+        var result = await _controller.GetConsumption(inputFromMonth, inputToMonth);
 
         // Assert
         result.Result.Should().BeOfType<OkObjectResult>();
         var okResult = result.Result as OkObjectResult;
         okResult!.Value.Should().BeEquivalentTo(expectedData);
-        _mockDataService.Verify(x => x.GetConsumptionByRegionAsync(fromMonth, toMonth), Times.Once);
+        _mockDataService.Verify(x => x.GetConsumptionByRegionAsync(normalizedFromMonth, normalizedToMonth), Times.Once);
     }
 
     [Fact]
