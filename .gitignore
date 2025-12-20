@@ -30,3 +30,8 @@ _ReSharper*/
 .vs/
 #Nuget packages folder
 packages/
+
+# Environment variables (contains secrets)
+.env
+.env.*
+!.env.example
