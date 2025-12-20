@@ -1,4 +1,5 @@
 using Electricity.Application.Interfaces;
+using Electricity.Infrastructure.Configuration;
 using Electricity.Infrastructure.Data;
 using Electricity.Infrastructure.ExternalServices;
 using Electricity.Infrastructure.Repositories;
@@ -20,6 +21,8 @@ public static class DependencyInjection
 
         services.AddScoped<IConsumptionRepository, ConsumptionRepository>();
         services.AddScoped<IProcessingLogRepository, ProcessingLogRepository>();
+
+        services.Configure<DownloadOptions>(configuration.GetSection(DownloadOptions.SectionName));
 
         services.AddHttpClient<IDataSourceRepository, DataGovLtDataSourceRepository>();
 

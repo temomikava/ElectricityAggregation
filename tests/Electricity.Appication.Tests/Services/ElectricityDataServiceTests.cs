@@ -191,7 +191,7 @@ public class ElectricityDataServiceTests
         // Assert
         result.Should().NotBeNull();
         result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Be("Download failed");
+        result.ErrorMessage.Should().Be("Failed to download CSV file");
 
         _mockProcessingLogRepo.Verify(x => x.UpdateLogAsync(
             It.Is<DataProcessingLog>(log =>
@@ -233,7 +233,7 @@ public class ElectricityDataServiceTests
         // Assert
         result.Should().NotBeNull();
         result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Be("CSV parsing error");
+        result.ErrorMessage.Should().Be("Failed to parse CSV file");
 
         _mockProcessingLogRepo.Verify(x => x.UpdateLogAsync(
             It.Is<DataProcessingLog>(log => log.Status == ProcessingStatus.Failed)

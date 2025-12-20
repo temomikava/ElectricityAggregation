@@ -26,22 +26,21 @@ public class ConsumptionRepository : IConsumptionRepository
             .Where(r => r.Month >= fromMonth && r.Month <= toMonth)
             .OrderBy(r => r.Month)
             .ThenBy(r => r.Region)
+            .AsNoTracking()
             .ToListAsync();
     }
 
     public async Task<bool> MonthExistsAsync(DateTime month)
     {
         return await _context.ConsumptionRecords
+            .AsNoTracking()
             .AnyAsync(r => r.Month == month);
     }
 
     public async Task DeleteByMonthAsync(DateTime month)
     {
-        var records = await _context.ConsumptionRecords
+        await _context.ConsumptionRecords
             .Where(r => r.Month == month)
-            .ToListAsync();
-
-        _context.ConsumptionRecords.RemoveRange(records);
-        await _context.SaveChangesAsync();
+            .ExecuteDeleteAsync();
     }
 }

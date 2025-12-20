@@ -42,124 +42,36 @@ public class ElectricityDataService : IElectricityDataService
 
         try
         {
-            log.Status = ProcessingStatus.Downloading;
-            await _processingLogRepository.UpdateLogAsync(log);
-
-            _logger.LogInformation("Downloading CSV file {FileName}", fileName);
-            Stream csvStream;
-            try
+            var csvStream = await DownloadFileAsync(log, fileName, cancellationToken);
+            if (csvStream is null)
             {
-                csvStream = await _dataSourceRepository.DownloadCsvFileAsync(fileName, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to download CSV file {FileName}", fileName);
-                log.Status = ProcessingStatus.Failed;
-                log.ErrorMessage = $"Failed to download CSV: {ex.Message}";
-                log.CompletedAt = DateTime.UtcNow;
-                await _processingLogRepository.UpdateLogAsync(log);
-
-                return new ProcessingResultDto
-                {
-                    Success = false,
-                    Month = monthString,
-                    ErrorMessage = ex.Message,
-                    ProcessingTime = stopwatch.Elapsed
-                };
+                return CreateFailureResult(monthString, "Failed to download CSV file", stopwatch.Elapsed);
             }
 
-            log.Status = ProcessingStatus.Parsing;
-            await _processingLogRepository.UpdateLogAsync(log);
-
-            _logger.LogInformation("Parsing CSV file {FileName}", fileName);
-            List<RawElectricityDataDto> rawData;
-            try
+            var rawData = await ParseCsvAsync(log, csvStream, fileName, cancellationToken);
+            if (rawData is null)
             {
-                await using (csvStream)
-                {
-                    rawData = await _csvParser.ParseCsvAsync(csvStream, cancellationToken);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to parse CSV file {FileName}", fileName);
-                log.Status = ProcessingStatus.Failed;
-                log.ErrorMessage = $"Failed to parse CSV: {ex.Message}";
-                log.CompletedAt = DateTime.UtcNow;
-                await _processingLogRepository.UpdateLogAsync(log);
-
-                return new ProcessingResultDto
-                {
-                    Success = false,
-                    Month = monthString,
-                    ErrorMessage = ex.Message,
-                    ProcessingTime = stopwatch.Elapsed
-                };
+                return CreateFailureResult(monthString, "Failed to parse CSV file", stopwatch.Elapsed);
             }
 
-            var totalRecords = rawData.Count;
-            _logger.LogInformation("Parsed {Count} records from {FileName}", totalRecords, fileName);
+            var apartmentData = FilterApartmentData(rawData, fileName);
+            var aggregatedRecords = AggregateDataByRegion(apartmentData, monthYear);
 
-            var apartmentData = FilterApartments(rawData);
-            var filteredCount = apartmentData.Count;
-            _logger.LogInformation("Filtered to {FilteredCount} apartment records from {TotalCount} total records",
-                filteredCount, totalRecords);
+            await UpdateLogStatistics(log, rawData.Count, apartmentData.Count, aggregatedRecords.Count);
 
-            log.RecordsProcessed = totalRecords;
-            log.RecordsFiltered = filteredCount;
+            await SaveAggregatedDataAsync(log, monthYear, aggregatedRecords, cancellationToken);
 
-            log.Status = ProcessingStatus.Aggregating;
-            await _processingLogRepository.UpdateLogAsync(log);
-
-            var aggregatedRecords = AggregateByRegion(apartmentData, monthYear);
-            _logger.LogInformation("Aggregated data into {RegionCount} regions", aggregatedRecords.Count);
-
-            var monthDateTime = monthYear.ToDateTime();
-            if (await _consumptionRepository.MonthExistsAsync(monthDateTime))
-            {
-                _logger.LogInformation("Month {Month} already exists, deleting old data", monthString);
-                await _consumptionRepository.DeleteByMonthAsync(monthDateTime);
-            }
-
-            log.Status = ProcessingStatus.Saving;
-            await _processingLogRepository.UpdateLogAsync(log);
-
-            _logger.LogInformation("Saving {Count} consumption records to database", aggregatedRecords.Count);
-            await _consumptionRepository.AddConsumptionRecordsAsync(aggregatedRecords, cancellationToken);
-
-            log.Status = ProcessingStatus.Completed;
-            log.CompletedAt = DateTime.UtcNow;
-            await _processingLogRepository.UpdateLogAsync(log);
+            await CompleteProcessingLog(log);
 
             stopwatch.Stop();
             _logger.LogInformation("Completed processing for month {Month} in {Duration}ms",
                 monthString, stopwatch.ElapsedMilliseconds);
 
-            return new ProcessingResultDto
-            {
-                Success = true,
-                Month = monthString,
-                RecordsProcessed = totalRecords,
-                RecordsFiltered = filteredCount,
-                RegionsAggregated = aggregatedRecords.Count,
-                ProcessingTime = stopwatch.Elapsed
-            };
+            return CreateSuccessResult(monthString, rawData.Count, apartmentData.Count, aggregatedRecords.Count, stopwatch.Elapsed);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error processing month {Month}", monthString);
-            log.Status = ProcessingStatus.Failed;
-            log.ErrorMessage = $"Unexpected error: {ex.Message}";
-            log.CompletedAt = DateTime.UtcNow;
-            await _processingLogRepository.UpdateLogAsync(log);
-
-            return new ProcessingResultDto
-            {
-                Success = false,
-                Month = monthString,
-                ErrorMessage = ex.Message,
-                ProcessingTime = stopwatch.Elapsed
-            };
+            return await HandleProcessingErrorAsync(log, monthString, ex, stopwatch.Elapsed);
         }
     }
 
@@ -210,16 +122,72 @@ public class ElectricityDataService : IElectricityDataService
         }).ToList();
     }
 
-    private List<RawElectricityDataDto> FilterApartments(List<RawElectricityDataDto> rawData)
+    private async Task<Stream?> DownloadFileAsync(DataProcessingLog log, string fileName, CancellationToken cancellationToken)
     {
-        return rawData
-            .Where(r => r.ObjektoTipas.Equals("Butas", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        try
+        {
+            log.Status = ProcessingStatus.Downloading;
+            await _processingLogRepository.UpdateLogAsync(log);
+
+            _logger.LogInformation("Downloading CSV file {FileName}", fileName);
+            return await _dataSourceRepository.DownloadCsvFileAsync(fileName, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to download CSV file {FileName}", fileName);
+            log.Status = ProcessingStatus.Failed;
+            log.ErrorMessage = $"Failed to download CSV: {ex.Message}";
+            log.CompletedAt = DateTime.UtcNow;
+            await _processingLogRepository.UpdateLogAsync(log);
+            return null;
+        }
     }
 
-    private List<ElectricityConsumptionRecord> AggregateByRegion(List<RawElectricityDataDto> apartmentData, MonthYear monthYear)
+    private async Task<List<RawElectricityDataDto>?> ParseCsvAsync(
+        DataProcessingLog log,
+        Stream csvStream,
+        string fileName,
+        CancellationToken cancellationToken)
     {
-        var grouped = apartmentData
+        try
+        {
+            log.Status = ProcessingStatus.Parsing;
+            await _processingLogRepository.UpdateLogAsync(log);
+
+            _logger.LogInformation("Parsing CSV file {FileName}", fileName);
+            await using (csvStream)
+            {
+                return await _csvParser.ParseCsvAsync(csvStream, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to parse CSV file {FileName}", fileName);
+            log.Status = ProcessingStatus.Failed;
+            log.ErrorMessage = $"Failed to parse CSV: {ex.Message}";
+            log.CompletedAt = DateTime.UtcNow;
+            await _processingLogRepository.UpdateLogAsync(log);
+            return null;
+        }
+    }
+
+    private List<RawElectricityDataDto> FilterApartmentData(List<RawElectricityDataDto> rawData, string fileName)
+    {
+        _logger.LogInformation("Parsed {Count} records from {FileName}", rawData.Count, fileName);
+
+        var apartmentData = rawData
+            .Where(r => r.ObjektoTipas.Equals("Butas", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        _logger.LogInformation("Filtered to {FilteredCount} apartment records from {TotalCount} total records",
+            apartmentData.Count, rawData.Count);
+
+        return apartmentData;
+    }
+
+    private List<ElectricityConsumptionRecord> AggregateDataByRegion(List<RawElectricityDataDto> apartmentData, MonthYear monthYear)
+    {
+        var aggregatedRecords = apartmentData
             .GroupBy(r => r.Tinklas)
             .Select(g => new ElectricityConsumptionRecord
             {
@@ -234,6 +202,89 @@ public class ElectricityDataService : IElectricityDataService
             })
             .ToList();
 
-        return grouped;
+        _logger.LogInformation("Aggregated data into {RegionCount} regions", aggregatedRecords.Count);
+
+        return aggregatedRecords;
+    }
+
+    private async Task UpdateLogStatistics(DataProcessingLog log, int totalRecords, int filteredCount, int regionCount)
+    {
+        log.RecordsProcessed = totalRecords;
+        log.RecordsFiltered = filteredCount;
+        log.Status = ProcessingStatus.Aggregating;
+        await _processingLogRepository.UpdateLogAsync(log);
+    }
+
+    private async Task SaveAggregatedDataAsync(
+        DataProcessingLog log,
+        MonthYear monthYear,
+        List<ElectricityConsumptionRecord> aggregatedRecords,
+        CancellationToken cancellationToken)
+    {
+        var monthDateTime = monthYear.ToDateTime();
+        var monthString = monthYear.ToString();
+
+        if (await _consumptionRepository.MonthExistsAsync(monthDateTime))
+        {
+            _logger.LogInformation("Month {Month} already exists, deleting old data", monthString);
+            await _consumptionRepository.DeleteByMonthAsync(monthDateTime);
+        }
+
+        log.Status = ProcessingStatus.Saving;
+        await _processingLogRepository.UpdateLogAsync(log);
+
+        _logger.LogInformation("Saving {Count} consumption records to database", aggregatedRecords.Count);
+        await _consumptionRepository.AddConsumptionRecordsAsync(aggregatedRecords, cancellationToken);
+    }
+
+    private async Task CompleteProcessingLog(DataProcessingLog log)
+    {
+        log.Status = ProcessingStatus.Completed;
+        log.CompletedAt = DateTime.UtcNow;
+        await _processingLogRepository.UpdateLogAsync(log);
+    }
+
+    private async Task<ProcessingResultDto> HandleProcessingErrorAsync(
+        DataProcessingLog log,
+        string monthString,
+        Exception ex,
+        TimeSpan processingTime)
+    {
+        _logger.LogError(ex, "Unexpected error processing month {Month}", monthString);
+        log.Status = ProcessingStatus.Failed;
+        log.ErrorMessage = $"Unexpected error: {ex.Message}";
+        log.CompletedAt = DateTime.UtcNow;
+        await _processingLogRepository.UpdateLogAsync(log);
+
+        return CreateFailureResult(monthString, ex.Message, processingTime);
+    }
+
+    private static ProcessingResultDto CreateSuccessResult(
+        string month,
+        int recordsProcessed,
+        int recordsFiltered,
+        int regionsAggregated,
+        TimeSpan processingTime)
+    {
+        return new ProcessingResultDto
+        {
+            Success = true,
+            Month = month,
+            RecordsProcessed = recordsProcessed,
+            RecordsFiltered = recordsFiltered,
+            RegionsAggregated = regionsAggregated,
+            ProcessingTime = processingTime
+        };
+    }
+
+    private static ProcessingResultDto CreateFailureResult(string month, string errorMessage, TimeSpan processingTime)
+    {
+        return new ProcessingResultDto
+        {
+            Success = false,
+            Month = month,
+            ErrorMessage = errorMessage,
+            ProcessingTime = processingTime
+        };
     }
 }
