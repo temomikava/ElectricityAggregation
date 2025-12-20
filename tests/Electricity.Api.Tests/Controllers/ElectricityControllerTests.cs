@@ -57,8 +57,8 @@ public class ElectricityControllerTests
         var result = await _controller.GetConsumption(fromMonth, toMonth);
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = result as OkObjectResult;
+        result.Result.Should().BeOfType<OkObjectResult>();
+        var okResult = result.Result as OkObjectResult;
         okResult!.Value.Should().BeEquivalentTo(expectedData);
         _mockDataService.Verify(x => x.GetConsumptionByRegionAsync(fromMonth, toMonth), Times.Once);
     }
@@ -87,26 +87,21 @@ public class ElectricityControllerTests
         var result = await _controller.GetConsumption(null, null);
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = result as OkObjectResult;
+        result.Result.Should().BeOfType<OkObjectResult>();
+        var okResult = result.Result as OkObjectResult;
         okResult!.Value.Should().BeEquivalentTo(expectedData);
     }
 
     [Fact]
-    public async Task GetConsumption_WhenServiceThrowsException_ShouldReturn500()
+    public async Task GetConsumption_WhenServiceThrowsException_ShouldThrowException()
     {
         // Arrange
         _mockDataService
             .Setup(x => x.GetConsumptionByRegionAsync(It.IsAny<DateTime?>(), It.IsAny<DateTime?>()))
             .ThrowsAsync(new Exception("Database error"));
 
-        // Act
-        var result = await _controller.GetConsumption(null, null);
-
-        // Assert
-        result.Should().BeOfType<ObjectResult>();
-        var objectResult = result as ObjectResult;
-        objectResult!.StatusCode.Should().Be(500);
+        // Act & Assert
+        await Assert.ThrowsAsync<Exception>(() => _controller.GetConsumption(null, null));
     }
 
     [Fact]
@@ -143,8 +138,8 @@ public class ElectricityControllerTests
         var result = await _controller.GetProcessingHistory(10);
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = result as OkObjectResult;
+        result.Result.Should().BeOfType<OkObjectResult>();
+        var okResult = result.Result as OkObjectResult;
         okResult!.Value.Should().BeEquivalentTo(expectedLogs);
         _mockDataService.Verify(x => x.GetProcessingHistoryAsync(10), Times.Once);
     }
@@ -160,32 +155,28 @@ public class ElectricityControllerTests
         var result = await _controller.GetProcessingHistory(take);
 
         // Assert
-        result.Should().BeOfType<BadRequestObjectResult>();
+        result.Result.Should().BeOfType<BadRequestObjectResult>();
         _mockDataService.Verify(x => x.GetProcessingHistoryAsync(It.IsAny<int>()), Times.Never);
     }
 
     [Fact]
-    public async Task GetProcessingHistory_WhenServiceThrowsException_ShouldReturn500()
+    public async Task GetProcessingHistory_WhenServiceThrowsException_ShouldThrowException()
     {
         // Arrange
         _mockDataService
             .Setup(x => x.GetProcessingHistoryAsync(It.IsAny<int>()))
             .ThrowsAsync(new Exception("Database error"));
 
-        // Act
-        var result = await _controller.GetProcessingHistory(10);
-
-        // Assert
-        result.Should().BeOfType<ObjectResult>();
-        var objectResult = result as ObjectResult;
-        objectResult!.StatusCode.Should().Be(500);
+        // Act & Assert
+        await Assert.ThrowsAsync<Exception>(() => _controller.GetProcessingHistory(10));
     }
 
     [Fact]
     public async Task TriggerProcessing_WithValidRequest_ShouldReturnOkWithResult()
     {
         // Arrange
-        var request = new TriggerProcessingRequest { Year = 2024, Month = 10 };
+        int year = 2024;
+        int month = 10;
         var expectedResult = new ProcessingResultDto
         {
             Success = true,
@@ -201,11 +192,11 @@ public class ElectricityControllerTests
             .ReturnsAsync(expectedResult);
 
         // Act
-        var result = await _controller.TriggerProcessing(request);
+        var result = await _controller.TriggerProcessing(year, month);
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = result as OkObjectResult;
+        result.Result.Should().BeOfType<OkObjectResult>();
+        var okResult = result.Result as OkObjectResult;
         okResult!.Value.Should().BeEquivalentTo(expectedResult);
         _mockDataService.Verify(x => x.ProcessMonthDataAsync(
             It.Is<MonthYear>(m => m.Year == 2024 && m.Month == 10),
@@ -218,59 +209,32 @@ public class ElectricityControllerTests
     [InlineData(2024, 0)]   // Month too low
     [InlineData(2024, 13)]  // Month too high
     [InlineData(2024, -1)]  // Negative month
-    public async Task TriggerProcessing_WithInvalidRequest_ShouldReturnBadRequest(int year, int month)
+    public async Task TriggerProcessing_WithInvalidRequest_ShouldThrowException(int year, int month)
     {
-        // Arrange
-        var request = new TriggerProcessingRequest { Year = year, Month = month };
-
-        // Act
-        var result = await _controller.TriggerProcessing(request);
-
-        // Assert
-        result.Should().BeOfType<BadRequestObjectResult>();
-        _mockDataService.Verify(x => x.ProcessMonthDataAsync(
-            It.IsAny<MonthYear>(),
-            It.IsAny<CancellationToken>()
-        ), Times.Never);
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _controller.TriggerProcessing(year, month));
     }
 
     [Fact]
-    public async Task TriggerProcessing_WithNullRequest_ShouldReturnBadRequest()
-    {
-        // Act
-        var result = await _controller.TriggerProcessing(null!);
-
-        // Assert
-        result.Should().BeOfType<BadRequestObjectResult>();
-        _mockDataService.Verify(x => x.ProcessMonthDataAsync(
-            It.IsAny<MonthYear>(),
-            It.IsAny<CancellationToken>()
-        ), Times.Never);
-    }
-
-    [Fact]
-    public async Task TriggerProcessing_WhenServiceThrowsException_ShouldReturn500()
+    public async Task TriggerProcessing_WhenServiceThrowsException_ShouldThrowException()
     {
         // Arrange
-        var request = new TriggerProcessingRequest { Year = 2024, Month = 10 };
+        int year = 2024;
+        int month = 10;
         _mockDataService
             .Setup(x => x.ProcessMonthDataAsync(It.IsAny<MonthYear>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Exception("Processing error"));
 
-        // Act
-        var result = await _controller.TriggerProcessing(request);
-
-        // Assert
-        result.Should().BeOfType<ObjectResult>();
-        var objectResult = result as ObjectResult;
-        objectResult!.StatusCode.Should().Be(500);
+        // Act & Assert
+        await Assert.ThrowsAsync<Exception>(() => _controller.TriggerProcessing(year, month));
     }
 
     [Fact]
-    public async Task TriggerProcessing_WithFailedProcessing_ShouldReturnOkWithFailureResult()
+    public async Task TriggerProcessing_WithFailedProcessing_ShouldReturn500WithFailureResult()
     {
         // Arrange
-        var request = new TriggerProcessingRequest { Year = 2024, Month = 10 };
+        int year = 2024;
+        int month = 10;
         var expectedResult = new ProcessingResultDto
         {
             Success = false,
@@ -284,11 +248,12 @@ public class ElectricityControllerTests
             .ReturnsAsync(expectedResult);
 
         // Act
-        var result = await _controller.TriggerProcessing(request);
+        var result = await _controller.TriggerProcessing(year, month);
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = result as OkObjectResult;
-        okResult!.Value.Should().BeEquivalentTo(expectedResult);
+        result.Result.Should().BeOfType<ObjectResult>();
+        var objectResult = result.Result as ObjectResult;
+        objectResult!.StatusCode.Should().Be(500);
+        objectResult.Value.Should().BeEquivalentTo(expectedResult);
     }
 }
